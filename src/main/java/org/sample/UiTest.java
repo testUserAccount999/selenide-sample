@@ -14,22 +14,28 @@ import java.util.Map;
 
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.openqa.selenium.By;
 import org.openqa.selenium.Platform;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.remote.DesiredCapabilities;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.codeborne.selenide.Configuration;
+import com.codeborne.selenide.SelenideElement;
 import com.codeborne.selenide.WebDriverProvider;
 import com.codeborne.selenide.WebDriverRunner;
 
 public class UiTest {
+    private static final Logger LOGGER = LoggerFactory.getLogger(UiTest.class);
     private static final String REPORT_BASE_DIR = "target/ui-test";
-    private static final String RESOURCE_BASE_DIR = "src/test";
+    private static final String RESOURCE_BASE_DIR = "src/test/resources";
     private static final String CSV_EXTENSION = ".csv";
     private static final String IMAGE_EXTENSION = ".jpg";
+    private static final String PNG_EXTENSION = ".png";
     private static final String HTML_EXTENSION = ".html";
     private static final String XLSX_EXTENSION = ".xlsx";
-    private static final String HOLD_ON_BROWSER_KEY = "UiTest.hold.on.browser";
+    private static final String PDF_EXTENSION = ".pdf";
     private static final String DATA_SHEET_NAME = "uiTest";
     // USER_AGENT_TYPE
     private static final String USER_AGENT_TYPE_IPHONE = "iPhone";
@@ -51,11 +57,13 @@ public class UiTest {
     private static final String JAVASCRIPT = "javaScript";
     private static final String INPUT_TEXT = "inputText";
     private static final String LINK_TEXT = "linkText";
-    private static final String CLICK = "CLICK";
+    private static final String CLICK = "click";
+    private static final String DOUBLE_CLICK = "doubleClick";
     private static final String SELECT_OPTION_INDEX = "selectOptionIndex";
     private static final String SELECT_OPTION_TEXT = "selectOptionText";
     private static final String SELECT_OPTION_VALUE = "selectOptionValue";
     private static final String SELECT_RADIO = "selectRadio";
+    private static final String FILE_UPLOAD = "fileUpload";
     private static final String SELECT_CHECK_BOX = "selectCheckBox";
     private static final String SWITCH_TO_WINDOW_BY_NAME = "switchToWindowByName";
     private static final String SWITCH_TO_WINDOW_BY_INDEX = "switchToWindowByIndex";
@@ -79,7 +87,6 @@ public class UiTest {
         } else {
             throw new IllegalArgumentException("illegal browser. browser=" + Configuration.browser);
         }
-        Configuration.holdBrowserOpen = Boolean.valueOf(System.getProperty(HOLD_ON_BROWSER_KEY, "false"));
     }
 
     @Before
@@ -91,9 +98,16 @@ public class UiTest {
     protected void execute() throws Exception {
         List<Map<String, String>> dataListMap = new XlsxDataReader().readData(getXlsxPath(), DATA_SHEET_NAME);
         validateData(dataListMap);
+        LOGGER.info("type count=" + dataListMap.size());
         for (Map<String, String> data : dataListMap) {
+            String no = data.get(NO_KEY);
             String type = data.get(TYPE_KEY);
+            String idSelector = data.get(ID_SELECTOR_KEY);
+            String name = data.get(NAME_KEY);
+            String xpath = data.get(XPATH_KEY);
             String value = data.get(VALUE_KEY);
+            LOGGER.info("No=" + no + ", type=" + type + ", id/selector=" + idSelector + ", name=" + name + ", xpath="
+                    + xpath + ", value=" + value);
             switch (type) {
             case USER_AGENT:
                 setUserAgent(value);
@@ -120,20 +134,40 @@ public class UiTest {
                 takeScreenShot();
                 break;
             case INPUT_TEXT:
+                getSelenideElement(idSelector, name, xpath).val(value);
                 break;
             case LINK_TEXT:
+                SelenideElement selenideElement = null;
+                if (!isNullOrEmpty(idSelector)) {
+                    selenideElement = $(idSelector);
+                } else if (!isNullOrEmpty(name)) {
+                    selenideElement = $(By.linkText(name));
+                } else if (!isNullOrEmpty(xpath)) {
+                    selenideElement = $(xpath);
+                }
+                selenideElement.click();
                 break;
             case CLICK:
+            case SELECT_CHECK_BOX:
+                getSelenideElement(idSelector, name, xpath).click();
+                break;
+            case DOUBLE_CLICK:
+                getSelenideElement(idSelector, name, xpath).doubleClick();
                 break;
             case SELECT_OPTION_INDEX:
+                getSelenideElement(idSelector, name, xpath).selectOption(Integer.valueOf(value));
                 break;
             case SELECT_OPTION_TEXT:
+                getSelenideElement(idSelector, name, xpath).selectOption(value);
                 break;
             case SELECT_OPTION_VALUE:
+                getSelenideElement(idSelector, name, xpath).selectOptionByValue(value);
                 break;
             case SELECT_RADIO:
+                getSelenideElement(idSelector, name, xpath).setSelected(Boolean.valueOf(value));
                 break;
-            case SELECT_CHECK_BOX:
+            case FILE_UPLOAD:
+                getSelenideElement(idSelector, name, xpath).uploadFile(new File(getResourceDir(), value));
                 break;
             case INSERT_DB:
                 // TODO 未実装
@@ -156,8 +190,7 @@ public class UiTest {
         } else if (USER_AGENT_TYPE_ANDROID.equalsIgnoreCase(userAgentType)) {
             platForm = Platform.ANDROID;
         }
-        DesiredCapabilities desiredCapabilities = new DesiredCapabilities(browser, browserVersion,
-                platForm);
+        DesiredCapabilities desiredCapabilities = new DesiredCapabilities(browser, browserVersion, platForm);
         WebDriverProvider webDriverProvider = new DefaultWebDriverProvider(getReportFolder(), userAgentType);
         WebDriver driver = webDriverProvider.createDriver(desiredCapabilities);
         WebDriverRunner.setWebDriver(driver);
@@ -201,7 +234,8 @@ public class UiTest {
                 @Override
                 public boolean accept(File dir, String name) {
                     return name.endsWith(CSV_EXTENSION) || name.endsWith(IMAGE_EXTENSION)
-                            || name.endsWith(HTML_EXTENSION);
+                            || name.endsWith(HTML_EXTENSION) || name.endsWith(PDF_EXTENSION)
+                            || name.endsWith(PNG_EXTENSION);
                 }
             })) {
                 f.delete();
@@ -211,6 +245,10 @@ public class UiTest {
         }
     }
 
+    private File getResourceDir() {
+        return new File(getXlsxPath()).getParentFile();
+    }
+    
     private String getXlsxPath() {
         return RESOURCE_BASE_DIR + "/" + testClass.getName().replaceAll("\\.", "/") + XLSX_EXTENSION;
     }
@@ -277,6 +315,7 @@ public class UiTest {
             case SELECT_OPTION_TEXT:
             case SELECT_OPTION_VALUE:
             case SELECT_CHECK_BOX:
+            case FILE_UPLOAD:
                 if (isNullOrEmpty(idSelector) && isNullOrEmpty(name) && isNullOrEmpty(xpath)) {
                     sb.append(type).append("にはid/selector, name, xpathのいずれかを設定してください。No=").append(no)
                             .append(System.lineSeparator());
@@ -292,6 +331,7 @@ public class UiTest {
                 break;
             case LINK_TEXT:
             case CLICK:
+            case DOUBLE_CLICK:
             case SELECT_RADIO:
                 if (isNullOrEmpty(idSelector) && isNullOrEmpty(name) && isNullOrEmpty(xpath)) {
                     sb.append(type).append("にはid/selector, name, xpathのいずれかを設定してください。No=").append(no)
@@ -312,6 +352,18 @@ public class UiTest {
         if (sb.length() != 0) {
             throw new IllegalArgumentException(sb.toString());
         }
+    }
+
+    private SelenideElement getSelenideElement(String idSelector, String name, String xpath) {
+        SelenideElement selenideElement = null;
+        if (!isNullOrEmpty(idSelector)) {
+            selenideElement = $(idSelector);
+        } else if (!isNullOrEmpty(name)) {
+            selenideElement = $(By.name(name));
+        } else if (!isNullOrEmpty(xpath)) {
+            selenideElement = $(By.xpath(xpath));
+        }
+        return selenideElement;
     }
 
     private boolean isNullOrEmpty(String value) {

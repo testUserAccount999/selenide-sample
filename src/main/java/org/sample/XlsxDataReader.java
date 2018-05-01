@@ -28,12 +28,13 @@ public class XlsxDataReader implements DataReader {
             for (Cell cell : headerRow) {
                 header.add(getCellValue(cell));
             }
-            for (int i = 1; i < sh.getLastRowNum(); i++) {
+            for (int i = 1; i <= sh.getLastRowNum(); i++) {
                 Row row = sh.getRow(i);
                 Map<String, String> map = new HashMap<>();
                 for (int j = 0; j < row.getLastCellNum(); j++) {
                     map.put(header.get(j), getCellValue(row.getCell(j)));
                 }
+                listMap.add(map);
             }
         } catch (InvalidOperationException | InvalidFormatException e) {
             throw new IOException("テストデータ読み込み中にエラー発生。path=" + path, e);
